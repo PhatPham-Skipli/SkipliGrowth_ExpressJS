@@ -1,0 +1,2270 @@
+openapi: 3.0.0
+info:
+  title: 'Skipli Growth - Restaurant Marketplace API'
+  description: |
+    Comprehensive production-grade REST API documentation for the **Skipli Growth** hospitality platform.
+    
+    This API empowers restaurant owners to hire verified culinary and hospitality specialists (menu designers, web developers, photographers, local marketers, ops support), place escrow-backed orders, customize feature packages, and complete payments seamlessly via **Inbuilt Stripe Elements**.
+    
+    ### Key Features:
+    - **Authentication & Multi-Role**: Switch between `RESTAURANT_OWNER` and `FREELANCER` roles on a single account, with optional GitHub OAuth.
+    - **User Management**: Search, list, create, update, and manage users.
+    - **Restaurant Venues**: Manage physical restaurant locations, branding, POS details, and profiles.
+    - **Freelancer Profiles**: Professional portfolios, verified skills, hourly rates, and ratings.
+    - **Category Feature Presets**: Predefined industry standards (`menu-design`, `web-ordering`, etc.) stored in Firestore for structured gig creation.
+    - **Gig Marketplace**: Rich hospitality gigs with tiered packages (`Basic`, `Standard`, `Premium`), dynamic feature matrices, and FAQ accordions.
+    - **Orders & Escrow**: Secure two-sided order lifecycle (`PENDING_PAYMENT`, `IN_PROGRESS`, `IN_REVIEW`, `REVISION_REQUESTED`, `COMPLETED`, `CANCELLED`) with deliverable submissions and client custom feature requests.
+    - **Payments**: Embedded **Inbuilt Stripe Elements** checkout with cryptographic webhook signature verification.
+  version: 1.0.0
+  contact:
+    name: 'Skipli Engineering Team'
+    email: 'dev@skipli.com'
+servers:
+  - url: 'http://localhost:8080/api'
+    description: 'Local Development Server (Port 8080)'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'Enter your JWT token obtained from `/auth/signin` or `/auth/signup`. Format: `Bearer <token>`'
+
+  schemas:
+    # -------------------------------------------------------------------------
+    # Generic API Response Envelopes
+    # -------------------------------------------------------------------------
+    ApiResponse:
+      type: object
+      properties:
+        type:
+          type: string
+          example: 'response'
+        statusCode:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: 'Success'
+        data:
+          type: object
+          nullable: true
+
+    ApiPaginationResponse:
+      type: object
+      properties:
+        type:
+          type: string
+          example: 'pagination'
+        statusCode:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: 'Success'
+        data:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+            totalCount:
+              type: integer
+              example: 42
+            currentPage:
+              type: integer
+              example: 1
+            pageSize:
+              type: integer
+              example: 10
+
+    # -------------------------------------------------------------------------
+    # Authentication & User Schemas
+    # -------------------------------------------------------------------------
+    UserRole:
+      type: string
+      enum: ['RESTAURANT_OWNER', 'FREELANCER', 'ADMIN']
+      example: 'RESTAURANT_OWNER'
+
+    AccountStanding:
+      type: string
+      enum: ['GOOD_STANDING', 'UNDER_REVIEW', 'RESTRICTED', 'SUSPENDED']
+      example: 'GOOD_STANDING'
+
+    PublicUser:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 'usr_9281a8c'
+        name:
+          type: string
+          example: 'Chef Marco Rossi'
+        email:
+          type: string
+          format: email
+          example: 'marco@bellavistabistro.com'
+        avatarUrl:
+          type: string
+          format: uri
+          example: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb'
+        bio:
+          type: string
+          example: 'Executive chef and proprietor with 15 years experience in fine dining.'
+        phone:
+          type: string
+          example: '+1 (415) 555-0199'
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserRole'
+        activeRole:
+          $ref: '#/components/schemas/UserRole'
+        accountStanding:
+          $ref: '#/components/schemas/AccountStanding'
+        isBanned:
+          type: boolean
+          example: false
+        banReason:
+          type: string
+          example: ''
+        githubUsername:
+          type: string
+          example: 'chef-marco'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    User:
+      allOf:
+        - $ref: '#/components/schemas/PublicUser'
+        - type: object
+          properties:
+            passwordHash:
+              type: string
+              example: '$2a$12$e8...'
+            verificationCode:
+              type: string
+              nullable: true
+            verificationCodeExpiresAt:
+              type: string
+              format: date-time
+              nullable: true
+            githubAccessToken:
+              type: string
+              nullable: true
+
+    SignupRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: 'marco@bellavistabistro.com'
+        password:
+          type: string
+          format: password
+          example: 'P@ssword123!'
+        name:
+          type: string
+          example: 'Chef Marco Rossi'
+        avatarUrl:
+          type: string
+          format: uri
+          example: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb'
+        bio:
+          type: string
+          example: 'Proprietor & head chef specializing in Italian rustic dining.'
+        phone:
+          type: string
+          example: '+1 (415) 555-0199'
+        role:
+          $ref: '#/components/schemas/UserRole'
+        # Optional restaurant onboarding details (if role is RESTAURANT_OWNER)
+        restaurantName:
+          type: string
+          example: 'Trattoria Bella Vista'
+        restaurantType:
+          type: string
+          example: 'Italian Fine Dining & Bistro'
+        restaurantCity:
+          type: string
+          example: 'San Francisco, CA'
+        restaurantAddress:
+          type: string
+          example: '124 Columbus Avenue'
+        restaurantPhone:
+          type: string
+          example: '+1 (415) 555-0199'
+        restaurantWebsiteUrl:
+          type: string
+          example: 'https://bellavistabistro.com'
+        restaurantDescription:
+          type: string
+          example: 'Artisanal wood-fired sourdough pizzas, fresh pasta, and curated wines.'
+        # Optional freelancer onboarding details (if role is FREELANCER)
+        professionalTitle:
+          type: string
+          example: 'Hospitality Brand & Menu Specialist'
+        skills:
+          type: array
+          items:
+            type: string
+          example: ['Menu Engineering', 'QR POS Sync', 'Food Photography']
+        hourlyRate:
+          type: number
+          example: 65
+        location:
+          type: string
+          example: 'San Francisco, CA'
+        languages:
+          type: array
+          items:
+            type: string
+          example: ['English', 'Italian']
+
+    SigninRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: 'marco@bellavistabistro.com'
+        password:
+          type: string
+          format: password
+          example: 'P@ssword123!'
+
+    SwitchRoleRequest:
+      type: object
+      required:
+        - role
+      properties:
+        role:
+          $ref: '#/components/schemas/UserRole'
+
+    AddRoleRequest:
+      type: object
+      required:
+        - role
+      properties:
+        role:
+          $ref: '#/components/schemas/UserRole'
+        restaurantName:
+          type: string
+          example: 'Trattoria Bella Vista'
+        restaurantType:
+          type: string
+          example: 'Italian Fine Dining'
+        restaurantCity:
+          type: string
+          example: 'San Francisco'
+        restaurantAddress:
+          type: string
+          example: '124 Columbus Ave'
+        restaurantPhone:
+          type: string
+          example: '+1 (415) 555-0199'
+        restaurantWebsiteUrl:
+          type: string
+          example: 'https://bellavistabistro.com'
+        restaurantDescription:
+          type: string
+          example: 'Fresh pasta & natural wines.'
+        professionalTitle:
+          type: string
+          example: 'Hospitality UI/UX Designer'
+        bio:
+          type: string
+          example: 'Designing seamless QR code menus and POS flows.'
+        skills:
+          type: array
+          items:
+            type: string
+          example: ['Menu Design', 'Figma']
+        hourlyRate:
+          type: number
+          example: 70
+        location:
+          type: string
+          example: 'San Francisco'
+        languages:
+          type: array
+          items:
+            type: string
+          example: ['English']
+
+    GithubAuthRequest:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          example: 'a4b88f9102c91823'
+          description: 'GitHub OAuth temporary authorization code returned by GitHub redirect.'
+
+    GithubInitResponseData:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          example: 'https://github.com/login/oauth/authorize?client_id=...&scope=user:email'
+
+    AuthResponseData:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/PublicUser'
+        token:
+          type: string
+          example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6InVzcl85MjgxYThjIiwiZW1haWwiOiJtYXJjb0BiZWxsYXZpc3RhYmlzdHJvLmNvbSJ9...'
+        restaurants:
+          type: array
+          items:
+            $ref: '#/components/schemas/Restaurant'
+        freelancerProfile:
+          $ref: '#/components/schemas/FreelancerProfile'
+          nullable: true
+
+    MeResponseData:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/PublicUser'
+        restaurants:
+          type: array
+          items:
+            $ref: '#/components/schemas/Restaurant'
+        freelancerProfile:
+          $ref: '#/components/schemas/FreelancerProfile'
+          nullable: true
+
+    UserUpsertRequest:
+      type: object
+      required:
+        - user
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+
+    # -------------------------------------------------------------------------
+    # Restaurant Schemas
+    # -------------------------------------------------------------------------
+    Restaurant:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 'rest_98218'
+        ownerId:
+          type: string
+          example: 'usr_9281a8c'
+        name:
+          type: string
+          example: 'Trattoria Bella Vista'
+        type:
+          type: string
+          example: 'Italian Bistro & Bar'
+        address:
+          type: string
+          example: '124 Columbus Avenue'
+        city:
+          type: string
+          example: 'San Francisco, CA'
+        phone:
+          type: string
+          example: '+1 (415) 555-8921'
+        websiteUrl:
+          type: string
+          example: 'https://bellavistabistro.com'
+        logoUrl:
+          type: string
+          example: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5'
+        coverImageUrl:
+          type: string
+          example: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4'
+        description:
+          type: string
+          example: 'Wood-fired handmade pasta & craft cocktail dining room.'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateRestaurantRequest:
+      type: object
+      required:
+        - name
+        - type
+      properties:
+        name:
+          type: string
+          example: 'Trattoria Bella Vista'
+        type:
+          type: string
+          example: 'Italian Fine Dining'
+        address:
+          type: string
+          example: '124 Columbus Ave'
+        phone:
+          type: string
+          example: '+1 (415) 555-0199'
+        logoUrl:
+          type: string
+          example: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5'
+        coverImageUrl:
+          type: string
+          example: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4'
+        description:
+          type: string
+          example: 'Authentic handmade pasta and wine pairings.'
+
+    UpdateRestaurantRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: 'Trattoria Bella Vista - Updated'
+        type:
+          type: string
+          example: 'Italian Fine Dining & Lounge'
+        address:
+          type: string
+          example: '124 Columbus Ave, Suite B'
+        phone:
+          type: string
+          example: '+1 (415) 555-9988'
+        logoUrl:
+          type: string
+          example: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5'
+        coverImageUrl:
+          type: string
+          example: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4'
+        description:
+          type: string
+          example: 'Handmade pasta, wood-fired hearth, and private room dining.'
+
+    # -------------------------------------------------------------------------
+    # Freelancer Profile Schemas
+    # -------------------------------------------------------------------------
+    FreelancerProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 'fl_89172'
+        userId:
+          type: string
+          example: 'usr_freelancer_12'
+        professionalTitle:
+          type: string
+          example: 'Senior Hospitality Brand & Menu Designer'
+        bio:
+          type: string
+          example: 'Over 8 years crafting award-winning menus and POS flows for Michelin and bistro venues.'
+        skills:
+          type: array
+          items:
+            type: string
+          example: ['Menu Design', 'QR Code Sync', 'Adobe Illustrator', 'Toast POS']
+        hourlyRate:
+          type: number
+          example: 65
+        rating:
+          type: number
+          example: 4.98
+        reviewCount:
+          type: integer
+          example: 230
+        completedOrders:
+          type: integer
+          example: 148
+        level:
+          type: string
+          example: 'Top Rated Pro'
+        location:
+          type: string
+          example: 'Milan, Italy'
+        languages:
+          type: array
+          items:
+            type: string
+          example: ['English', 'Italian']
+        avgResponseTime:
+          type: string
+          example: 'Within 2 hours'
+        portfolioImages:
+          type: array
+          items:
+            type: string
+          example:
+            - 'https://images.unsplash.com/photo-1541544741938-0af808871cc0'
+            - 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UpdateFreelancerProfileRequest:
+      type: object
+      properties:
+        professionalTitle:
+          type: string
+          example: 'Hospitality Brand & Direct Ordering Engineer'
+        bio:
+          type: string
+          example: 'Specialized in high-conversion ordering portals and print visual identity.'
+        skills:
+          type: array
+          items:
+            type: string
+          example: ['Menu Design', 'QR Code', 'Toast POS']
+        hourlyRate:
+          type: number
+          example: 75
+        portfolioImages:
+          type: array
+          items:
+            type: string
+
+    PublicFreelancerResponseData:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/PublicUser'
+        profile:
+          $ref: '#/components/schemas/FreelancerProfile'
+
+    # -------------------------------------------------------------------------
+    # Category Features Schemas
+    # -------------------------------------------------------------------------
+    ServiceCategory:
+      type: string
+      enum:
+        - 'web-ordering'
+        - 'menu-design'
+        - 'local-marketing'
+        - 'photo-video'
+        - 'ops-support'
+      example: 'menu-design'
+
+    TierValueMap:
+      type: object
+      properties:
+        Basic:
+          oneOf:
+            - type: boolean
+            - type: number
+            - type: string
+          example: 1
+        Standard:
+          oneOf:
+            - type: boolean
+            - type: number
+            - type: string
+          example: 4
+        Premium:
+          oneOf:
+            - type: boolean
+            - type: number
+            - type: string
+          example: 8
+
+    CategoryFeature:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 'cat_feat_menu_pages'
+        category:
+          $ref: '#/components/schemas/ServiceCategory'
+        name:
+          type: string
+          example: 'Number of Menu Pages'
+        code:
+          type: string
+          example: 'pages_count'
+        description:
+          type: string
+          example: 'Total printed or digital layout pages designed'
+        valueType:
+          type: string
+          enum: ['boolean', 'number', 'text']
+          example: 'number'
+        unit:
+          type: string
+          example: 'Pages'
+        isCore:
+          type: boolean
+          example: true
+        displayOrder:
+          type: integer
+          example: 1
+        isActive:
+          type: boolean
+          example: true
+        defaultTierValues:
+          $ref: '#/components/schemas/TierValueMap'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    # -------------------------------------------------------------------------
+    # Gig Marketplace Schemas
+    # -------------------------------------------------------------------------
+    GigPackageFeatureValue:
+      type: object
+      properties:
+        featureId:
+          type: string
+          example: 'pages_count'
+        name:
+          type: string
+          example: 'Number of Menu Pages'
+        value:
+          oneOf:
+            - type: boolean
+            - type: number
+            - type: string
+          example: 4
+        unit:
+          type: string
+          example: 'Pages'
+        isCustom:
+          type: boolean
+          example: false
+
+    GigPackage:
+      type: object
+      required:
+        - name
+        - title
+        - price
+        - deliveryDays
+      properties:
+        name:
+          type: string
+          enum: ['Basic', 'Standard', 'Premium']
+          example: 'Standard'
+        title:
+          type: string
+          example: 'Complete Bi-fold Menu Layout'
+        description:
+          type: string
+          example: 'Appetizers, Mains & Desserts with custom vector food icons.'
+        deliveryDays:
+          type: integer
+          example: 3
+        revisions:
+          oneOf:
+            - type: integer
+            - type: string
+          example: 4
+        price:
+          type: number
+          example: 85
+        features:
+          type: array
+          items:
+            type: string
+          example: ['Up to 4 Pages', 'Custom Vector Icons', 'High-res Print PDF']
+        structuredFeatures:
+          type: array
+          items:
+            $ref: '#/components/schemas/GigPackageFeatureValue'
+
+    GigFAQ:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 'faq_1'
+        question:
+          type: string
+          example: 'Can I request adjustments after the menu is printed?'
+        answer:
+          type: string
+          example: 'Yes! Standard and Premium packages include seasonal digital re-linking.'
+
+    GigSellerSnapshot:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 'usr_freelancer_12'
+        name:
+          type: string
+          example: 'Elena Vane'
+        avatar:
+          type: string
+          example: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb'
+        level:
+          type: string
+          example: 'Top Rated Pro'
+        specialty:
+          type: string
+          example: 'Hospitality Brand & Menu Designer'
+        location:
+          type: string
+          example: 'Milan, Italy'
+        rating:
+          type: number
+          example: 4.98
+        reviewCount:
+          type: integer
+          example: 230
+
+    Gig:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 'gig_lux_menu_01'
+        sellerId:
+          type: string
+          example: 'usr_freelancer_12'
+        title:
+          type: string
+          example: 'I will design an appetising luxury restaurant menu with print and digital QR code'
+        slug:
+          type: string
+          example: 'luxury-restaurant-menu-qr'
+        category:
+          $ref: '#/components/schemas/ServiceCategory'
+        categoryLabel:
+          type: string
+          example: 'Menu & Visual Identity'
+        coverImage:
+          type: string
+          example: 'https://images.unsplash.com/photo-1541544741938-0af808871cc0'
+        galleryImages:
+          type: array
+          items:
+            type: string
+        startingPrice:
+          type: number
+          example: 45
+        packages:
+          type: array
+          items:
+            $ref: '#/components/schemas/GigPackage'
+        tags:
+          type: array
+          items:
+            type: string
+          example: ['Menu Design', 'QR Code', 'Restaurant Branding']
+        description:
+          type: string
+          example: 'Full dining brand identity and printable menu engineering for bistros and fine dining.'
+        highlights:
+          type: array
+          items:
+            type: string
+          example: ['300 DPI CMYK Print Ready', 'QR Code Cloud Hosting Included']
+        faqs:
+          type: array
+          items:
+            $ref: '#/components/schemas/GigFAQ'
+        status:
+          type: string
+          enum: ['DRAFT', 'PUBLISHED', 'PAUSED']
+          example: 'PUBLISHED'
+        rating:
+          type: number
+          example: 4.96
+        reviewCount:
+          type: integer
+          example: 148
+        isTopRated:
+          type: boolean
+          example: true
+        isBestSeller:
+          type: boolean
+          example: true
+        seller:
+          $ref: '#/components/schemas/GigSellerSnapshot'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateGigRequest:
+      type: object
+      required:
+        - title
+        - category
+        - packages
+      properties:
+        title:
+          type: string
+          example: 'I will build a high-converting restaurant website with direct online ordering'
+        category:
+          $ref: '#/components/schemas/ServiceCategory'
+        categoryLabel:
+          type: string
+          example: 'Websites & Direct Ordering'
+        coverImage:
+          type: string
+          example: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71'
+        galleryImages:
+          type: array
+          items:
+            type: string
+        packages:
+          type: array
+          items:
+            $ref: '#/components/schemas/GigPackage'
+        tags:
+          type: array
+          items:
+            type: string
+          example: ['Next.js', 'Online Ordering', 'Stripe']
+        description:
+          type: string
+          example: 'Direct ordering system bypassing third-party delivery commissions.'
+        highlights:
+          type: array
+          items:
+            type: string
+        faqs:
+          type: array
+          items:
+            $ref: '#/components/schemas/GigFAQ'
+
+    UpdateGigRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        category:
+          $ref: '#/components/schemas/ServiceCategory'
+        categoryLabel:
+          type: string
+        coverImage:
+          type: string
+        galleryImages:
+          type: array
+          items:
+            type: string
+        packages:
+          type: array
+          items:
+            $ref: '#/components/schemas/GigPackage'
+        tags:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        highlights:
+          type: array
+          items:
+            type: string
+        faqs:
+          type: array
+          items:
+            $ref: '#/components/schemas/GigFAQ'
+        status:
+          type: string
+          enum: ['DRAFT', 'PUBLISHED', 'PAUSED']
+
+    # -------------------------------------------------------------------------
+    # Order & Escrow Schemas
+    # -------------------------------------------------------------------------
+    OrderStatus:
+      type: string
+      enum:
+        - 'PENDING_PAYMENT'
+        - 'IN_PROGRESS'
+        - 'IN_REVIEW'
+        - 'REVISION_REQUESTED'
+        - 'COMPLETED'
+        - 'CANCELLED'
+      example: 'IN_PROGRESS'
+
+    OrderAddon:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 'addon-express'
+        name:
+          type: string
+          example: '24-Hour Rush Turnaround'
+        price:
+          type: number
+          example: 25
+
+    OrderDeliverable:
+      type: object
+      properties:
+        fileUrl:
+          type: string
+          example: 'https://storage.googleapis.com/skipli-deliverables/menu-final-v2.pdf'
+        note:
+          type: string
+          example: 'Final print-ready PDF and dynamic QR links configured!'
+        submittedAt:
+          type: string
+          format: date-time
+
+    ClientCustomRequests:
+      type: object
+      properties:
+        requestedExtraFeatures:
+          type: array
+          items:
+            type: string
+          example: ['Include dietary calorie counts next to main dishes', 'Nutritional allergen chart']
+        specialInstructions:
+          type: string
+          example: 'Please match our dark emerald and walnut wood interior palette.'
+
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 'ord_91823a'
+        orderNumber:
+          type: string
+          example: '#SKP-8921'
+        buyerId:
+          type: string
+          example: 'usr_owner_1'
+        sellerId:
+          type: string
+          example: 'usr_freelancer_12'
+        restaurantId:
+          type: string
+          example: 'rest_98218'
+        restaurantName:
+          type: string
+          example: 'Trattoria Bella Vista'
+        gigId:
+          type: string
+          example: 'gig_lux_menu_01'
+        gigTitle:
+          type: string
+          example: 'I will design an appetising luxury restaurant menu with print and digital QR code'
+        gigImage:
+          type: string
+        category:
+          $ref: '#/components/schemas/ServiceCategory'
+        categoryLabel:
+          type: string
+        packageName:
+          type: string
+          example: 'Standard'
+        packagePrice:
+          type: number
+          example: 85
+        packageFeaturesSnapshot:
+          type: array
+          items:
+            $ref: '#/components/schemas/GigPackageFeatureValue'
+        selectedAddons:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderAddon'
+        clientCustomRequests:
+          $ref: '#/components/schemas/ClientCustomRequests'
+        totalAmount:
+          type: number
+          example: 110
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        deliveryDays:
+          type: integer
+          example: 3
+        deadline:
+          type: string
+          format: date-time
+        stripePaymentIntentId:
+          type: string
+          example: 'pi_3Lq9281a9821'
+        stripeClientSecret:
+          type: string
+          example: 'pi_3Lq9281a9821_secret_91283'
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+        deliverables:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderDeliverable'
+        progressPercent:
+          type: integer
+          example: 25
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateOrderRequest:
+      type: object
+      required:
+        - gigId
+        - packageName
+      properties:
+        gigId:
+          type: string
+          example: 'w7pDEElh9K9epIiKNcj6'
+        packageName:
+          type: string
+          enum: ['Basic', 'Standard', 'Premium']
+          example: 'Standard'
+        restaurantId:
+          type: string
+          example: 'rest_98218'
+        restaurantName:
+          type: string
+          example: 'Trattoria Bella Vista'
+        selectedAddons:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderAddon'
+        clientCustomRequests:
+          $ref: '#/components/schemas/ClientCustomRequests'
+
+    DeliverWorkRequest:
+      type: object
+      required:
+        - fileUrl
+        - note
+      properties:
+        fileUrl:
+          type: string
+          format: uri
+          example: 'https://storage.googleapis.com/skipli/menu-v2-final.pdf'
+        note:
+          type: string
+          example: 'Complete deliverables uploaded with dynamic QR generator code ready for printing.'
+
+    # -------------------------------------------------------------------------
+    # Stripe Payment Schemas
+    # -------------------------------------------------------------------------
+    CreatePaymentIntentRequest:
+      type: object
+      required:
+        - orderId
+      properties:
+        orderId:
+          type: string
+          example: 'ord_91823a'
+
+    PaymentIntentResponseData:
+      type: object
+      properties:
+        clientSecret:
+          type: string
+          example: 'pi_3Pqz_secret_98127391'
+        paymentIntentId:
+          type: string
+          example: 'pi_3Pqz98127391'
+        order:
+          $ref: '#/components/schemas/Order'
+
+# =============================================================================
+# API PATHS & ENDPOINTS
+# =============================================================================
+paths:
+  # ---------------------------------------------------------------------------
+  # 1. Authentication Endpoints (/api/auth)
+  # ---------------------------------------------------------------------------
+  /auth/signup:
+    post:
+      tags:
+        - Authentication
+      summary: 'Register a new account'
+      description: |
+        Registers a new user profile with either `RESTAURANT_OWNER` or `FREELANCER` role.
+        
+        Optionally supports inline onboarding fields to create the initial restaurant venue or freelancer specialist profile in a single atomic transaction.
+        Returns a JWT token and active session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+      responses:
+        201:
+          description: 'User registered successfully with session'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/AuthResponseData'
+        400:
+          description: 'Validation failed or email already registered'
+
+  /auth/signin:
+    post:
+      tags:
+        - Authentication
+      summary: 'Sign in with credentials'
+      description: 'Authenticates user via email and password, returning a JWT token, user details, owned restaurants, and freelancer profile.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SigninRequest'
+      responses:
+        200:
+          description: 'User authenticated successfully'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/AuthResponseData'
+        401:
+          description: 'Invalid email or password'
+
+  /auth/me:
+    get:
+      tags:
+        - Authentication
+      summary: 'Get current user session'
+      description: 'Retrieves authenticated user details, roles, owned restaurants, and freelancer profile from the JWT session token.'
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: 'Current session user details'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/MeResponseData'
+        401:
+          description: 'Unauthorized - invalid or expired token'
+
+  /auth/switch-role:
+    post:
+      tags:
+        - Authentication
+      summary: 'Switch active user role'
+      description: 'Toggles between `RESTAURANT_OWNER` and `FREELANCER` dashboard views if the user owns both roles.'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SwitchRoleRequest'
+      responses:
+        200:
+          description: 'Role switched successfully'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/PublicUser'
+        400:
+          description: 'User does not possess requested role'
+
+  /auth/add-role:
+    post:
+      tags:
+        - Authentication
+      summary: 'Add secondary role'
+      description: 'Allows an existing restaurant owner to become a freelancer specialist or vice versa. Creates associated profile/restaurant records.'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddRoleRequest'
+      responses:
+        200:
+          description: 'Role added successfully'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/MeResponseData'
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: 'Logout current session'
+      description: 'Clears the user session.'
+      responses:
+        200:
+          description: 'Logged out successfully'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: 'null'
+
+  /auth/github/init:
+    get:
+      tags:
+        - Authentication
+      summary: 'Get GitHub OAuth authorization URL'
+      description: 'Generates GitHub OAuth login redirect URL with client ID and requested scopes.'
+      responses:
+        200:
+          description: 'GitHub URL generated successfully'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GithubInitResponseData'
+
+  /auth/github:
+    post:
+      tags:
+        - Authentication
+      summary: 'Authenticate with GitHub OAuth'
+      description: 'Exchanges GitHub authorization code for user identity, creates or signs into the user account, and returns a JWT session token.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GithubAuthRequest'
+      responses:
+        200:
+          description: 'GitHub authentication successful'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/AuthResponseData'
+        400:
+          description: 'Invalid GitHub code or failed token exchange'
+
+  /auth/github/link:
+    post:
+      tags:
+        - Authentication
+      summary: 'Link GitHub account to existing session'
+      description: 'Links an external GitHub account to the currently logged in user profile.'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GithubAuthRequest'
+      responses:
+        200:
+          description: 'GitHub account linked successfully'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/PublicUser'
+
+  /auth/github/unlink:
+    post:
+      tags:
+        - Authentication
+      summary: 'Unlink GitHub account'
+      description: 'Detaches the linked GitHub identity from the current user account.'
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: 'GitHub account unlinked successfully'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/PublicUser'
+
+  # ---------------------------------------------------------------------------
+  # 2. User Management Endpoints (/api/users)
+  # ---------------------------------------------------------------------------
+  /users/all:
+    get:
+      tags:
+        - Users
+      summary: 'List all users'
+      description: 'Returns all registered users in public sanitized format (omitting password hashes and sensitive tokens).'
+      responses:
+        200:
+          description: 'List of users'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/PublicUser'
+
+  /users/search:
+    get:
+      tags:
+        - Users
+      summary: 'Search users by email'
+      description: 'Performs paginated search against user email prefixes.'
+      parameters:
+        - in: query
+          name: email
+          required: false
+          schema:
+            type: string
+          description: 'Email prefix search query'
+          example: 'marco'
+        - in: query
+          name: page
+          required: false
+          schema:
+            type: integer
+            default: 1
+          description: 'Page index (1-indexed)'
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            default: 10
+          description: 'Number of items per page'
+      responses:
+        200:
+          description: 'Paginated user results'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiPaginationResponse'
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/PublicUser'
+                          totalCount:
+                            type: integer
+                            example: 1
+                          currentPage:
+                            type: integer
+                            example: 1
+                          pageSize:
+                            type: integer
+                            example: 10
+
+  /users/add:
+    post:
+      tags:
+        - Users
+      summary: 'Create user (Internal / Admin)'
+      description: 'Creates a complete user entity directly.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpsertRequest'
+      responses:
+        201:
+          description: 'User created successfully'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /users/update:
+    patch:
+      tags:
+        - Users
+      summary: 'Update user'
+      description: 'Updates an existing user record.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpsertRequest'
+      responses:
+        200:
+          description: 'User updated successfully'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /users/delete/{id}:
+    delete:
+      tags:
+        - Users
+      summary: 'Delete user'
+      description: 'Permanently removes a user by ID.'
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: 'User ID'
+      responses:
+        200:
+          description: 'User deleted successfully'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  # ---------------------------------------------------------------------------
+  # 3. Restaurant Venue Endpoints (/api/restaurants)
+  # ---------------------------------------------------------------------------
+  /restaurants/my:
+    get:
+      tags:
+        - Restaurants
+      summary: 'List restaurants owned by current user'
+      description: 'Fetches all dining venues owned by the logged-in restaurant operator.'
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: 'Array of owned restaurant profiles'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Restaurant'
+
+  /restaurants:
+    post:
+      tags:
+        - Restaurants
+      summary: 'Create a new restaurant venue'
+      description: 'Registers a new venue under the logged-in owner.'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRestaurantRequest'
+      responses:
+        201:
+          description: 'Restaurant created successfully'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/Restaurant'
+
+  /restaurants/{id}:
+    get:
+      tags:
+        - Restaurants
+      summary: 'Get restaurant by ID'
+      description: 'Public endpoint to view restaurant details, branding, and location.'
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: 'Restaurant unique ID'
+      responses:
+        200:
+          description: 'Restaurant details'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/Restaurant'
+        404:
+          description: 'Restaurant not found'
+    patch:
+      tags:
+        - Restaurants
+      summary: 'Update restaurant details'
+      description: 'Updates venue branding, address, phone, and descriptions. Requires ownership.'
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRestaurantRequest'
+      responses:
+        200:
+          description: 'Restaurant updated successfully'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/Restaurant'
+        403:
+          description: 'Forbidden - only venue owner can update'
+    delete:
+      tags:
+        - Restaurants
+      summary: 'Delete restaurant venue'
+      description: 'Permanently removes restaurant profile. Requires ownership.'
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: 'Restaurant deleted successfully'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        403:
+          description: 'Forbidden - only venue owner can delete'
+
+  # ---------------------------------------------------------------------------
+  # 4. Freelancer Profile Endpoints (/api/freelancers)
+  # ---------------------------------------------------------------------------
+  /freelancers/profile:
+    get:
+      tags:
+        - Freelancers
+      summary: 'Get current freelancer profile'
+      description: 'Fetches the professional profile, portfolio, and metrics of the logged-in freelancer.'
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: 'Freelancer profile details'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/FreelancerProfile'
+    patch:
+      tags:
+        - Freelancers
+      summary: 'Update freelancer profile'
+      description: 'Updates bio, skills, hourly rate, portfolio media, and professional title.'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFreelancerProfileRequest'
+      responses:
+        200:
+          description: 'Profile updated successfully'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/FreelancerProfile'
+        403:
+          description: 'User lacks FREELANCER role'
+
+  /freelancers/{userId}:
+    get:
+      tags:
+        - Freelancers
+      summary: 'Get public freelancer profile by User ID'
+      description: 'Public profile including user name, avatar, rating, completed jobs, bio, and portfolio photos.'
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          description: 'User ID of the freelancer'
+      responses:
+        200:
+          description: 'Public freelancer bio, portfolio, and metrics'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/PublicFreelancerResponseData'
+        404:
+          description: 'Freelancer not found'
+
+  /freelancers/search:
+    get:
+      tags:
+        - Freelancers
+      summary: 'Search freelancers by skill'
+      description: 'Finds verified hospitality freelancers matching a particular specialty or skill.'
+      parameters:
+        - in: query
+          name: skill
+          required: true
+          schema:
+            type: string
+          example: 'Menu Design'
+          description: 'Skill name keyword'
+      responses:
+        200:
+          description: 'Matching specialist freelancers'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FreelancerProfile'
+
+  # ---------------------------------------------------------------------------
+  # 5. Category Predefined Features Endpoints (/api/categories)
+  # ---------------------------------------------------------------------------
+  /categories/features:
+    get:
+      tags:
+        - Category Features
+      summary: 'List standardized category features'
+      description: |
+        Returns predefined feature templates stored in Firestore.
+        
+        Used dynamically by the **CreateGigModal** to pre-populate industry standard checkboxes (`boolean`), counts (`number`), or text fields for each category.
+      parameters:
+        - in: query
+          name: category
+          required: false
+          schema:
+            $ref: '#/components/schemas/ServiceCategory'
+          description: 'Filter features by category slug (e.g. `menu-design`, `web-ordering`)'
+      responses:
+        200:
+          description: 'Array of active category features'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/CategoryFeature'
+
+  /categories/features/{category}:
+    get:
+      tags:
+        - Category Features
+      summary: 'Get features for a specific category'
+      description: 'Retrieves all preset features configured for a single hospitality category slug.'
+      parameters:
+        - in: path
+          name: category
+          required: true
+          schema:
+            $ref: '#/components/schemas/ServiceCategory'
+          description: 'Category slug'
+      responses:
+        200:
+          description: 'Category features list'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/CategoryFeature'
+
+  # ---------------------------------------------------------------------------
+  # 6. Gig Marketplace Endpoints (/api/gigs)
+  # ---------------------------------------------------------------------------
+  /gigs:
+    get:
+      tags:
+        - Gigs Marketplace
+      summary: 'Browse and search published gigs'
+      description: 'Retrieves public hospitality gigs with optional filtering by category, search text, seller ID, or status.'
+      parameters:
+        - in: query
+          name: category
+          schema:
+            type: string
+          example: 'menu-design'
+          description: 'Filter by category slug'
+        - in: query
+          name: search
+          schema:
+            type: string
+          example: 'QR code'
+          description: 'Search keyword matching title, tags, or description'
+        - in: query
+          name: sellerId
+          schema:
+            type: string
+          description: 'Filter by creator seller user ID'
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: ['PUBLISHED', 'DRAFT', 'PAUSED']
+            default: 'PUBLISHED'
+          description: 'Gig publication state'
+      responses:
+        200:
+          description: 'List of matching gigs'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Gig'
+    post:
+      tags:
+        - Gigs Marketplace
+      summary: 'Publish a new restaurant gig'
+      description: |
+        Creates a new service gig with tiered packages (`Basic`, `Standard`, `Premium`) and structured feature values.
+        
+        Requires `FREELANCER` role. Automatically generates URL slug and captures seller snapshot.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGigRequest'
+      responses:
+        201:
+          description: 'Gig published successfully'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/Gig'
+        403:
+          description: 'User lacks FREELANCER role'
+
+  /gigs/my/list:
+    get:
+      tags:
+        - Gigs Marketplace
+      summary: 'List gigs published by the logged-in freelancer'
+      description: 'Fetches all gigs authored by current creator, including DRAFT and PAUSED items.'
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: 'Array of freelancer gigs'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Gig'
+
+  /gigs/{idOrSlug}:
+    get:
+      tags:
+        - Gigs Marketplace
+      summary: 'Get gig details by ID or URL slug'
+      description: 'Fetches full gig detail view with package matrix, structured features, FAQs, and seller profile.'
+      parameters:
+        - in: path
+          name: idOrSlug
+          required: true
+          schema:
+            type: string
+          example: 'luxury-restaurant-menu-qr'
+          description: 'Firestore Gig ID or SEO slug string'
+      responses:
+        200:
+          description: 'Gig details with package matrix and seller bio'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/Gig'
+        404:
+          description: 'Gig not found'
+
+  /gigs/{id}:
+    put:
+      tags:
+        - Gigs Marketplace
+      summary: 'Update existing gig'
+      description: 'Updates gig title, packages, pricing, description, FAQs, or status. Requires ownership.'
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: 'Gig ID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateGigRequest'
+      responses:
+        200:
+          description: 'Gig updated successfully'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/Gig'
+        403:
+          description: 'Forbidden - only author can modify gig'
+    delete:
+      tags:
+        - Gigs Marketplace
+      summary: 'Pause / delete gig'
+      description: 'Pauses or removes the gig from public discovery. Requires ownership.'
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: 'Gig paused/deleted successfully'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          success:
+                            type: boolean
+                            example: true
+
+  # ---------------------------------------------------------------------------
+  # 7. Orders & Escrow Endpoints (/api/orders)
+  # ---------------------------------------------------------------------------
+  /orders:
+    post:
+      tags:
+        - Orders & Escrow
+      summary: 'Place a new service order'
+      description: |
+        Initiates an order for a restaurant gig package.
+        
+        - Calculates total price strictly on server from the gig's package price plus selected addons.
+        - Captures an immutable snapshot of package structured features.
+        - Stores custom client requests and special kitchen/brand notes.
+        - Creates the order in `PENDING_PAYMENT` state awaiting Stripe charge.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        201:
+          description: 'Order created successfully awaiting payment'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/Order'
+        404:
+          description: 'Gig or package not found'
+
+  /orders/buyer:
+    get:
+      tags:
+        - Orders & Escrow
+      summary: 'List orders commissioned by logged-in restaurant owner'
+      description: 'Returns all orders placed by the current venue owner, ordered by creation date.'
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: 'Array of buyer orders'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Order'
+
+  /orders/seller:
+    get:
+      tags:
+        - Orders & Escrow
+      summary: 'List orders assigned to logged-in freelancer'
+      description: 'Returns all active and past client orders assigned to the creator pipeline.'
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: 'Array of freelancer pipeline orders'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Order'
+
+  /orders/{id}:
+    get:
+      tags:
+        - Orders & Escrow
+      summary: 'Get order details by ID'
+      description: 'Retrieves complete order detail view including custom requests, deliverables, status, and payment identifiers. Restricted to order buyer or seller.'
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: 'Order ID'
+      responses:
+        200:
+          description: 'Order details'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/Order'
+        403:
+          description: 'Forbidden - not authorized to view this order'
+        404:
+          description: 'Order not found'
+
+  /orders/{id}/deliver:
+    patch:
+      tags:
+        - Orders & Escrow
+      summary: 'Submit deliverables for review (Freelancer)'
+      description: |
+        Submits work assets (files, design PDFs, web URLs) and transition order status to `IN_REVIEW`.
+        
+        Only accessible by the assigned seller.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: 'Order ID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeliverWorkRequest'
+      responses:
+        200:
+          description: 'Deliverables submitted for buyer inspection'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/Order'
+        400:
+          description: 'Order is not in IN_PROGRESS state'
+        403:
+          description: 'Only the assigned freelancer can deliver work'
+
+  /orders/{id}/approve:
+    patch:
+      tags:
+        - Orders & Escrow
+      summary: 'Approve order and release Escrow funds (Restaurant Owner)'
+      description: |
+        Accepts deliverables, transitions order status to `COMPLETED`, and releases escrow funds to freelancer balance.
+        
+        Only accessible by the order buyer.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: 'Order ID'
+      responses:
+        200:
+          description: 'Order approved and escrow completed'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/Order'
+        400:
+          description: 'Order is not in IN_REVIEW state'
+        403:
+          description: 'Only the commissioning buyer can approve the order'
+
+  # ---------------------------------------------------------------------------
+  # 8. Payments & Inbuilt Stripe Elements Endpoints (/api/payments)
+  # ---------------------------------------------------------------------------
+  /payments/create-intent:
+    post:
+      tags:
+        - Payments & Stripe
+      summary: 'Create Stripe PaymentIntent for Inbuilt Stripe Elements'
+      description: |
+        Initializes a Stripe `PaymentIntent` for the total order amount.
+        
+        Returns `clientSecret` which mounts directly into frontend `<PaymentElement />` in the Skipli UI without external page redirects.
+        Restricted to the order buyer.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentIntentRequest'
+      responses:
+        200:
+          description: 'PaymentIntent generated with clientSecret'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/PaymentIntentResponseData'
+        400:
+          description: 'Order is already paid or cancelled'
+        403:
+          description: 'Forbidden - only order buyer can pay'
+        404:
+          description: 'Order not found'
+
+  /payments/confirm:
+    post:
+      tags:
+        - Payments & Stripe
+      summary: 'Confirm Stripe Payment & Transition Order to Escrow'
+      description: |
+        Synchronizes payment status directly with Stripe after client-side `confirmPayment` resolves.
+        
+        Verifies `PaymentIntent` status with Stripe API (`succeeded`), transitions order to `IN_PROGRESS`, records `paidAt`, and emits real-time socket events.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - orderId
+              properties:
+                orderId:
+                  type: string
+                  example: 'YmtHLiefhjXNn03GBSTv'
+                paymentIntentId:
+                  type: string
+                  example: 'pi_3ULydZFOp6OsPN2a0HJsBGSr'
+      responses:
+        200:
+          description: 'Payment confirmed successfully and order placed IN_PROGRESS'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/Order'
+        400:
+          description: 'Payment has not succeeded yet or invalid order'
+        403:
+          description: 'Forbidden'
+        404:
+          description: 'Order not found'
+
+  /payments/webhook:
+    post:
+      tags:
+        - Payments & Stripe
+      summary: 'Stripe Webhook Listener'
+      description: |
+        Receives and cryptographically verifies events from Stripe (e.g. `payment_intent.succeeded`).
+        
+        On success, moves order status from `PENDING_PAYMENT` to `IN_PROGRESS`, records `paidAt` timestamp, and holds funds in Escrow.
+        
+        **Important:** This endpoint expects the raw binary request payload and the `stripe-signature` header.
+      parameters:
+        - in: header
+          name: stripe-signature
+          required: true
+          schema:
+            type: string
+          description: 'Stripe HMAC-SHA256 cryptographic signature header'
+      requestBody:
+        required: true
+        description: 'Raw binary request buffer from Stripe webhook dispatcher'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: 'Webhook processed successfully'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+                    example: true
+        400:
+          description: 'Invalid webhook signature or payload'

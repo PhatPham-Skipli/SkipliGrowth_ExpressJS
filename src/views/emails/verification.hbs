@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Verification Code</title>
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+            background-color: #f7f9fc; 
+            margin: 0; 
+            padding: 0; 
+            -webkit-font-smoothing: antialiased;
+        }
+        .wrapper {
+            width: 100%;
+            table-layout: fixed;
+            background-color: #f7f9fc;
+            padding-top: 40px;
+            padding-bottom: 40px;
+        }
+        .container { 
+            max-width: 600px; 
+            margin: 0 auto; 
+            background: #ffffff; 
+            border-radius: 12px; 
+            overflow: hidden;
+            box-shadow: 0 8px 24px rgba(149, 157, 165, 0.1); 
+        }
+        .header {
+            background-color: #0052cc;
+            padding: 30px 20px;
+            text-align: center;
+        }
+        .header h1 {
+            color: #ffffff;
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .content {
+            padding: 40px 30px;
+            text-align: center;
+        }
+        h2 { 
+            color: #172b4d; 
+            font-size: 20px;
+            margin-top: 0;
+            margin-bottom: 16px;
+        }
+        p { 
+            color: #5e6c84; 
+            line-height: 1.6; 
+            font-size: 15px;
+            margin: 0 0 24px 0;
+        }
+        .code-container {
+            background-color: #f4f5f7;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 32px 0;
+            display: inline-block;
+        }
+        .code { 
+            font-size: 32px; 
+            font-weight: 700; 
+            color: #0052cc; 
+            letter-spacing: 8px; 
+            margin: 0;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        .footer { 
+            background-color: #fafbfc;
+            padding: 24px 30px;
+            text-align: center; 
+            border-top: 1px solid #dfe1e6; 
+        }
+        .footer p {
+            font-size: 13px; 
+            color: #97a0af; 
+            margin: 0 0 8px 0;
+        }
+        .footer p:last-child {
+            margin-bottom: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrapper">
+        <div class="container">
+            <div class="header">
+                <h1>Mini Trello</h1>
+            </div>
+            <div class="content">
+                <h2>Verify your account</h2>
+                <p>Welcome to Mini Trello! To complete your registration, please use the verification code below:</p>
+                
+                <div class="code-container">
+                    <div class="code">{{code}}</div>
+                </div>
+                
+                <p>This verification code is valid for <strong>5 minutes</strong>.<br/>Please do not share this code with anyone to keep your account secure.</p>
+            </div>
+            <div class="footer">
+                <p><strong>Mini Trello Team</strong></p>
+                <p>If you didn't request this code, please ignore this email and do not share the code with anyone.</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
